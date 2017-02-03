@@ -15,7 +15,19 @@ function runEthTx({ contract, method, ...opts }, cb) {
             return;
         }
 
-        const methodAbi = contract.abi.find(({ name }) => name === method);
+        const methodAbi = contract.abi.find(({ name, inputs }) => {
+            if (name !== method) return false;
+            const paramNames = inputs.map((param) => {
+                if (param.name[ 0 ] === "_") {
+                    return param.name.substring(1);
+                }
+                return param.name;
+            });
+            for (let i = 0; i < paramNames.length; i += 1) {
+                if (typeof opts[ paramNames[ i ] ] === "undefined") return false;
+            }
+            return true;
+        });
 
         if (!methodAbi) {
             reject(new Error("Invalid method"));
@@ -103,7 +115,7 @@ function runEthTx({ contract, method, ...opts }, cb) {
                 cb(null, value);
             },
             (reason) => {
-                cb(null, reason);
+                cb(reason);
             });
     } else {
         return promise;

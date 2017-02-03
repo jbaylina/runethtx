@@ -1,6 +1,6 @@
 {
   "name": "runethtx",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Run Ethereum Transactions Helper",
   "main": "dist/runethtx.js",
   "scripts": {
