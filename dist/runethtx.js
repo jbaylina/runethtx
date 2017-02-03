@@ -3,7 +3,6 @@
 Object.defineProperty(exports, "__esModule", {
     value: true
 });
-exports.default = runEthTx;
 
 var _async = require("async");
 
@@ -12,6 +11,9 @@ var _async2 = _interopRequireDefault(_async);
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
 function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
+
+exports.default = runEthTx;
+
 
 function runEthTx(_ref, cb) {
     var contract = _ref.contract,
@@ -31,8 +33,20 @@ function runEthTx(_ref, cb) {
         }
 
         var methodAbi = contract.abi.find(function (_ref2) {
-            var name = _ref2.name;
-            return name === method;
+            var name = _ref2.name,
+                inputs = _ref2.inputs;
+
+            if (name !== method) return false;
+            var paramNames = inputs.map(function (param) {
+                if (param.name[0] === "_") {
+                    return param.name.substring(1);
+                }
+                return param.name;
+            });
+            for (var i = 0; i < paramNames.length; i += 1) {
+                if (typeof opts[paramNames[i]] === "undefined") return false;
+            }
+            return true;
         });
 
         if (!methodAbi) {
@@ -56,12 +70,14 @@ function runEthTx(_ref, cb) {
         _async2.default.series([function (cb1) {
             if (opts.from) {
                 fromAccount = opts.from;
-                setImmediate(cb1);
+                setTimeout(cb1, 1);
             } else {
                 // eslint-disable-next-line no-underscore-dangle
                 contract._eth.getAccounts(function (err, _accounts) {
                     if (err) {
-                        cb1(err);return;
+                        console.log("xxxxx -> " + err);
+                        cb1(err);
+                        return;
                     }
                     if (_accounts.length === 0) {
                         cb1(new Error("No account to deploy a contract"));
@@ -71,7 +87,7 @@ function runEthTx(_ref, cb) {
                     cb1();
                 });
             }
-        }, function (cb1) {
+        }, function (cb2) {
             var params = paramNames.map(function (name) {
                 return opts[name];
             });
@@ -81,31 +97,32 @@ function runEthTx(_ref, cb) {
             });
             params.push(function (err, _gas) {
                 if (err) {
-                    cb1(err);
+                    cb2(err);
                 } else if (_gas >= 4000000) {
-                    cb1(new Error("throw"));
+                    cb2(new Error("throw"));
                 } else {
                     gas = _gas;
                     gas += opts.extraGas ? opts.extraGas : 10000;
-                    cb1();
+                    cb2();
                 }
             });
 
             contract[method].estimateGas.apply(null, params);
-        }, function (cb1) {
+        }, function (cb3) {
             var params = paramNames.map(function (name) {
                 return opts[name];
             });
+            //                console.log(method + ": " + JSON.stringify(params));
             params.push({
                 from: fromAccount,
                 gas: gas
             });
             params.push(function (err, _txHash) {
                 if (err) {
-                    cb1(err);
+                    cb3(err);
                 } else {
                     txHash = _txHash;
-                    cb1();
+                    cb3();
                 }
             });
 
@@ -123,7 +140,7 @@ function runEthTx(_ref, cb) {
         promise.then(function (value) {
             cb(null, value);
         }, function (reason) {
-            cb(null, reason);
+            cb(reason);
         });
     } else {
         return promise;

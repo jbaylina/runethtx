@@ -49,11 +49,15 @@ function runEthTx({ contract, method, ...opts }, cb) {
             (cb1) => {
                 if (opts.from) {
                     fromAccount = opts.from;
-                    setImmediate(cb1);
+                    setTimeout(cb1, 1);
                 } else {
                     // eslint-disable-next-line no-underscore-dangle
                     contract._eth.getAccounts((err, _accounts) => {
-                        if (err) { cb1(err); return; }
+                        if (err) {
+                            console.log("xxxxx -> " + err);
+                            cb1(err);
+                            return;
+                        }
                         if (_accounts.length === 0) {
                             cb1(new Error("No account to deploy a contract"));
                             return;
@@ -63,7 +67,7 @@ function runEthTx({ contract, method, ...opts }, cb) {
                     });
                 }
             },
-            (cb1) => {
+            (cb2) => {
                 const params = paramNames.map(name => opts[ name ]);
                 params.push({
                     from: fromAccount,
@@ -71,30 +75,31 @@ function runEthTx({ contract, method, ...opts }, cb) {
                 });
                 params.push((err, _gas) => {
                     if (err) {
-                        cb1(err);
+                        cb2(err);
                     } else if (_gas >= 4000000) {
-                        cb1(new Error("throw"));
+                        cb2(new Error("throw"));
                     } else {
                         gas = _gas;
                         gas += opts.extraGas ? opts.extraGas : 10000;
-                        cb1();
+                        cb2();
                     }
                 });
 
                 contract[ method ].estimateGas.apply(null, params);
             },
-            (cb1) => {
+            (cb3) => {
                 const params = paramNames.map(name => opts[ name ]);
+//                console.log(method + ": " + JSON.stringify(params));
                 params.push({
                     from: fromAccount,
                     gas,
                 });
                 params.push((err, _txHash) => {
                     if (err) {
-                        cb1(err);
+                        cb3(err);
                     } else {
                         txHash = _txHash;
-                        cb1();
+                        cb3();
                     }
                 });
 
