@@ -108,7 +108,7 @@ function deploy(web3, _ref, _cb) {
                 from: fromAccount,
                 value: opts.value || 0,
                 data: byteCode,
-                gas: gas
+                gas: opts.gas || gas
             });
             params.push(function (err, _contract) {
                 if (err) {
@@ -204,8 +204,12 @@ function sendTx(web3, _ref4, _cb) {
                 } else if (_gas >= 4000000) {
                     cb1(new Error("throw"));
                 } else {
-                    txOpts.gas = _gas;
-                    txOpts.gas += opts.extraGas ? opts.extraGas : 10000;
+                    if (opts.gas) {
+                        txOpts.gas = opts.gas;
+                    } else {
+                        txOpts.gas = _gas;
+                        txOpts.gas += opts.extraGas ? opts.extraGas : 10000;
+                    }
                     cb1();
                 }
             });
@@ -331,7 +335,7 @@ function sendContractTx(web3, contract, method, opts, _cb) {
             params.push({
                 from: fromAccount,
                 value: opts.value,
-                gas: gas
+                gas: opts.gas || gas
             });
             params.push(function (err, _txHash) {
                 if (err) {
