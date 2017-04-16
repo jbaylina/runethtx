@@ -1,8 +1,11 @@
-import async from "async";
+const async = require("async");
 
-export default {
+module.exports = {
     sendContractTx,
     sendTx,
+    getBalance,
+    getTransactionReceipt,
+    getBlock,
     deploy,
     asyncfunc,
 };
@@ -69,6 +72,9 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                     } else if (_gas >= 4000000) {
                         cb2(new Error("throw"));
                     } else {
+                        if (opts.verbose) {
+                            console.log("Gas: " + _gas);
+                        }
                         gas = _gas;
                         gas += opts.extraGas ? opts.extraGas : 10000;
                         cb2();
@@ -129,7 +135,25 @@ function asyncfunc(f, cb) {
     }
 }
 
-function sendTx(web3, { from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
+function getBalance(web3, address, _cb) {
+    return asyncfunc((cb) => {
+        web3.eth.getBalance(address, cb);
+    }, _cb);
+}
+
+function getTransactionReceipt(web3, txHash, _cb) {
+    return asyncfunc((cb) => {
+        web3.eth.getTransactionReceipt(txHash, cb);
+    }, _cb);
+}
+
+function getBlock(web3, blockNumber, _cb) {
+    return asyncfunc((cb) => {
+        web3.eth.getBlock(blockNumber, cb);
+    }, _cb);
+}
+
+function sendTx(web3, { data, from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
     return asyncfunc((cb) => {
         const txOpts = {};
         let txHash;
@@ -137,10 +161,12 @@ function sendTx(web3, { from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
             cb(new Error("to is required"));
             return;
         }
+        txOpts.to = to;
         txOpts.value = value || 0;
         if (gas) txOpts.gas = gas;
         if (gasPrice) txOpts.gasPrice = gasPrice;
         if (nonce) txOpts.nonce = nonce;
+        if (data) txOpts.data = data;
         async.series([
             (cb1) => {
                 if (from) {
@@ -174,6 +200,9 @@ function sendTx(web3, { from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
                     } else if (_gas >= 4000000) {
                         cb1(new Error("throw"));
                     } else {
+                        if (opts.verbose) {
+                            console.log("Gas: " + _gas);
+                        }
                         if (opts.gas) {
                             txOpts.gas = opts.gas;
                         } else {
@@ -193,6 +222,9 @@ function sendTx(web3, { from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
                         cb1();
                     }
                 });
+            },
+            (cb1) => {
+                setTimeout(cb1, 100);
             },
         ], (err) => {
             cb(err, txHash);
@@ -275,6 +307,11 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 }
             },
             (cb2) => {
+                if (opts.noEstimateGas) {
+                    gas=4000000;
+                    cb2();
+                    return;
+                }
                 const params = paramNames.map(name => opts[ name ]);
                 if (opts.verbose) console.log(method + ": " + JSON.stringify(params));
                 params.push({
@@ -288,6 +325,9 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                     } else if (_gas >= 4000000) {
                         cb2(new Error("throw"));
                     } else {
+                        if (opts.verbose) {
+                            console.log("Gas: " + _gas);
+                        }
                         gas = _gas;
                         gas += opts.extraGas ? opts.extraGas : 10000;
                         cb2();
@@ -322,3 +362,18 @@ function sendContractTx(web3, contract, method, opts, _cb) {
         });
     }, _cb);
 }
+
+function sendAction(web3, action, contract, method, opts, _cb) {
+    return asyncfunc((cb) => {
+        if (action.type === "ACCOUNT") {
+            const data = getData(contract, method, opts);
+        } else if (action.type === "MULTISIG_START") {
+
+        } else if (action.type === "MULTISIG_CONFIRM") {
+
+        } else if (action.type === "MULTISIG_REVOKE") {
+
+        }
+    }, cb);
+}
+

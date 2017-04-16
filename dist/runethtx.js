@@ -1,26 +1,20 @@
 "use strict";
 
-Object.defineProperty(exports, "__esModule", {
-    value: true
-});
-
-var _async = require("async");
-
-var _async2 = _interopRequireDefault(_async);
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
 function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } else { return Array.from(arr); } }
 
 function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
 
-exports.default = {
+var async = require("async");
+
+module.exports = {
     sendContractTx: sendContractTx,
     sendTx: sendTx,
+    getBalance: getBalance,
+    getTransactionReceipt: getTransactionReceipt,
+    getBlock: getBlock,
     deploy: deploy,
     asyncfunc: asyncfunc
 };
-
 
 function deploy(web3, _ref, _cb) {
     var abi = _ref.abi,
@@ -48,7 +42,7 @@ function deploy(web3, _ref, _cb) {
         } else {
             paramNames = [];
         }
-        _async2.default.series([function (cb1) {
+        async.series([function (cb1) {
             if (opts.from) {
                 fromAccount = opts.from;
                 setTimeout(cb1, 1);
@@ -95,6 +89,9 @@ function deploy(web3, _ref, _cb) {
                 } else if (_gas >= 4000000) {
                     cb2(new Error("throw"));
                 } else {
+                    if (opts.verbose) {
+                        console.log("Gas: " + _gas);
+                    }
                     gas = _gas;
                     gas += opts.extraGas ? opts.extraGas : 10000;
                     cb2();
@@ -153,14 +150,33 @@ function asyncfunc(f, cb) {
     }
 }
 
+function getBalance(web3, address, _cb) {
+    return asyncfunc(function (cb) {
+        web3.eth.getBalance(address, cb);
+    }, _cb);
+}
+
+function getTransactionReceipt(web3, txHash, _cb) {
+    return asyncfunc(function (cb) {
+        web3.eth.getTransactionReceipt(txHash, cb);
+    }, _cb);
+}
+
+function getBlock(web3, blockNumber, _cb) {
+    return asyncfunc(function (cb) {
+        web3.eth.getBlock(blockNumber, cb);
+    }, _cb);
+}
+
 function sendTx(web3, _ref4, _cb) {
-    var from = _ref4.from,
+    var data = _ref4.data,
+        from = _ref4.from,
         value = _ref4.value,
         gas = _ref4.gas,
         gasPrice = _ref4.gasPrice,
         nonce = _ref4.nonce,
         to = _ref4.to,
-        opts = _objectWithoutProperties(_ref4, ["from", "value", "gas", "gasPrice", "nonce", "to"]);
+        opts = _objectWithoutProperties(_ref4, ["data", "from", "value", "gas", "gasPrice", "nonce", "to"]);
 
     return asyncfunc(function (cb) {
         var txOpts = {};
@@ -169,11 +185,13 @@ function sendTx(web3, _ref4, _cb) {
             cb(new Error("to is required"));
             return;
         }
+        txOpts.to = to;
         txOpts.value = value || 0;
         if (gas) txOpts.gas = gas;
         if (gasPrice) txOpts.gasPrice = gasPrice;
         if (nonce) txOpts.nonce = nonce;
-        _async2.default.series([function (cb1) {
+        if (data) txOpts.data = data;
+        async.series([function (cb1) {
             if (from) {
                 txOpts.from = from;
                 setTimeout(cb1, 1);
@@ -204,6 +222,9 @@ function sendTx(web3, _ref4, _cb) {
                 } else if (_gas >= 4000000) {
                     cb1(new Error("throw"));
                 } else {
+                    if (opts.verbose) {
+                        console.log("Gas: " + _gas);
+                    }
                     if (opts.gas) {
                         txOpts.gas = opts.gas;
                     } else {
@@ -222,6 +243,8 @@ function sendTx(web3, _ref4, _cb) {
                     cb1();
                 }
             });
+        }, function (cb1) {
+            setTimeout(cb1, 100);
         }], function (err) {
             cb(err, txHash);
         });
@@ -286,7 +309,7 @@ function sendContractTx(web3, contract, method, opts, _cb) {
         var gas = void 0;
         var txHash = void 0;
 
-        _async2.default.series([function (cb1) {
+        async.series([function (cb1) {
             if (opts.from) {
                 fromAccount = opts.from;
                 setTimeout(cb1, 1);
@@ -306,6 +329,11 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 });
             }
         }, function (cb2) {
+            if (opts.noEstimateGas) {
+                gas = 4000000;
+                cb2();
+                return;
+            }
             var params = paramNames.map(function (name) {
                 return opts[name];
             });
@@ -321,6 +349,9 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 } else if (_gas >= 4000000) {
                     cb2(new Error("throw"));
                 } else {
+                    if (opts.verbose) {
+                        console.log("Gas: " + _gas);
+                    }
                     gas = _gas;
                     gas += opts.extraGas ? opts.extraGas : 10000;
                     cb2();
@@ -354,4 +385,11 @@ function sendContractTx(web3, contract, method, opts, _cb) {
         });
     }, _cb);
 }
-module.exports = exports["default"];
+
+function sendAction(web3, action, contract, method, opts, _cb) {
+    return asyncfunc(function (cb) {
+        if (action.type === "ACCOUNT") {
+            var data = getData(contract, method, opts);
+        } else if (action.type === "MULTISIG_START") {} else if (action.type === "MULTISIG_CONFIRM") {} else if (action.type === "MULTISIG_REVOKE") {}
+    }, cb);
+}
