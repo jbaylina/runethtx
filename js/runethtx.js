@@ -49,6 +49,11 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                 }
             },
             (cb2) => {
+                if (opts.gas) {
+                    gas = opts.gas;
+                    cb2();
+                    return;
+                }
                 const params = paramNames.map(name => opts[ name ]);
                 params.push({
                     from: fromAccount,
@@ -87,7 +92,7 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                     from: fromAccount,
                     value: opts.value || 0,
                     data: byteCode,
-                    gas: opts.gas || gas,
+                    gas,
                 });
                 params.push((err, _contract) => {
                     if (err) {
@@ -190,6 +195,11 @@ function sendTx(web3, { data, from, value, gas, gasPrice, nonce, to, ...opts }, 
                 }
             },
             (cb1) => {
+                if (opts.gas) {
+                    txOpts.gas = opts.gas;
+                    cb1();
+                    return;
+                }
                 if (opts.verbose) {
                     console.log("sendTx: " + JSON.stringify(txOpts));
                 }
@@ -308,7 +318,12 @@ function sendContractTx(web3, contract, method, opts, _cb) {
             },
             (cb2) => {
                 if (opts.noEstimateGas) {
-                    gas=4000000;
+                    gas = 4000000;
+                    cb2();
+                    return;
+                }
+                if (opts.gas) {
+                    gas = opts.gas;
                     cb2();
                     return;
                 }

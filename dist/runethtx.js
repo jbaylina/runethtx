@@ -64,6 +64,11 @@ function deploy(web3, _ref, _cb) {
         }, function (cb2) {
             var _web3$eth$contract$ne;
 
+            if (opts.gas) {
+                gas = opts.gas;
+                cb2();
+                return;
+            }
             var params = paramNames.map(function (name) {
                 return opts[name];
             });
@@ -105,7 +110,7 @@ function deploy(web3, _ref, _cb) {
                 from: fromAccount,
                 value: opts.value || 0,
                 data: byteCode,
-                gas: opts.gas || gas
+                gas: gas
             });
             params.push(function (err, _contract) {
                 if (err) {
@@ -212,6 +217,11 @@ function sendTx(web3, _ref4, _cb) {
                 });
             }
         }, function (cb1) {
+            if (opts.gas) {
+                txOpts.gas = opts.gas;
+                cb1();
+                return;
+            }
             if (opts.verbose) {
                 console.log("sendTx: " + JSON.stringify(txOpts));
             }
@@ -331,6 +341,11 @@ function sendContractTx(web3, contract, method, opts, _cb) {
         }, function (cb2) {
             if (opts.noEstimateGas) {
                 gas = 4000000;
+                cb2();
+                return;
+            }
+            if (opts.gas) {
+                gas = opts.gas;
                 cb2();
                 return;
             }
