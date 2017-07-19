@@ -8,11 +8,12 @@ module.exports = {
     getBlock,
     deploy,
     asyncfunc,
+    generateClass
 };
 
-function deploy(web3, { abi, byteCode, ...opts }, _cb) {
+function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
     return asyncfunc((cb) => {
-        const constructorAbi = abi.find(({ type }) => (type === "constructor"));
+        const constructorAbi = $abi.find(({ type }) => (type === "constructor"));
         let paramNames;
         let contract;
         let fromAccount;
@@ -29,8 +30,8 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
         }
         async.series([
             (cb1) => {
-                if (opts.from) {
-                    fromAccount = opts.from;
+                if (opts.$from) {
+                    fromAccount = opts.$from;
                     setTimeout(cb1, 1);
                 } else {
                     web3.eth.getAccounts((err, _accounts) => {
@@ -49,26 +50,26 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                 }
             },
             (cb2) => {
-                if (opts.gas) {
-                    gas = opts.gas;
+                if (opts.$gas) {
+                    gas = opts.$gas;
                     cb2();
                     return;
                 }
                 const params = paramNames.map(name => opts[ name ]);
                 params.push({
                     from: fromAccount,
-                    value: opts.value || 0,
-                    data: byteCode,
+                    value: opts.$value || 0,
+                    data: $byteCode,
                     gas: 4000000,
                 });
-                if (opts.verbose) {
+                if (opts.$verbose) {
                     console.log("constructor: " + JSON.stringify(params));
                 }
-                const data = web3.eth.contract(abi).new.getData(...params);
+                const data = web3.eth.contract($abi).new.getData(...params);
 
                 web3.eth.estimateGas({
                     from: fromAccount,
-                    value: opts.value || 0,
+                    value: opts.$value || 0,
                     data,
                     gas: 4000000,
                 }, (err, _gas) => {
@@ -77,11 +78,11 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                     } else if (_gas >= 4000000) {
                         cb2(new Error("throw"));
                     } else {
-                        if (opts.verbose) {
+                        if (opts.$verbose) {
                             console.log("Gas: " + _gas);
                         }
                         gas = _gas;
-                        gas += opts.extraGas ? opts.extraGas : 10000;
+                        gas += opts.$extraGas ? opts.$extraGas : 10000;
                         cb2();
                     }
                 });
@@ -90,8 +91,8 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                 const params = paramNames.map(name => opts[ name ]);
                 params.push({
                     from: fromAccount,
-                    value: opts.value || 0,
-                    data: byteCode,
+                    value: opts.$value || 0,
+                    data: $byteCode,
                     gas,
                 });
                 params.push((err, _contract) => {
@@ -104,7 +105,7 @@ function deploy(web3, { abi, byteCode, ...opts }, _cb) {
                         cb3();
                     }
                 });
-                const ctr = web3.eth.contract(abi);
+                const ctr = web3.eth.contract($abi);
                 ctr.new(...params);
             },
         ], (err2) => {
@@ -195,29 +196,29 @@ function sendTx(web3, { data, from, value, gas, gasPrice, nonce, to, ...opts }, 
                 }
             },
             (cb1) => {
-                if (opts.gas) {
-                    txOpts.gas = opts.gas;
+                if (opts.$gas) {
+                    txOpts.gas = opts.$gas;
                     cb1();
                     return;
                 }
-                if (opts.verbose) {
+                if (opts.$verbose) {
                     console.log("sendTx: " + JSON.stringify(txOpts));
                 }
-                txOpts.gas = 4000000;
+                txOpts.$gas = 4000000;
                 web3.eth.estimateGas(txOpts, (err, _gas) => {
                     if (err) {
                         cb1(err);
                     } else if (_gas >= 4000000) {
                         cb1(new Error("throw"));
                     } else {
-                        if (opts.verbose) {
+                        if (opts.$verbose) {
                             console.log("Gas: " + _gas);
                         }
-                        if (opts.gas) {
-                            txOpts.gas = opts.gas;
+                        if (opts.$gas) {
+                            txOpts.gas = opts.$gas;
                         } else {
                             txOpts.gas = _gas;
-                            txOpts.gas += opts.extraGas ? opts.extraGas : 10000;
+                            txOpts.gas += opts.$extraGas ? opts.$extraGas : 10000;
                         }
                         cb1();
                     }
@@ -297,8 +298,8 @@ function sendContractTx(web3, contract, method, opts, _cb) {
 
         async.series([
             (cb1) => {
-                if (opts.from) {
-                    fromAccount = opts.from;
+                if (opts.$from) {
+                    fromAccount = opts.$from;
                     setTimeout(cb1, 1);
                 } else {
                     web3.eth.getAccounts((err, _accounts) => {
@@ -308,7 +309,7 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                             return;
                         }
                         if (_accounts.length === 0) {
-                            cb1(new Error("No account to deploy a contract"));
+                            cb1(new Error("No account to send the TX"));
                             return;
                         }
                         fromAccount = _accounts[ 0 ];
@@ -317,21 +318,21 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 }
             },
             (cb2) => {
-                if (opts.noEstimateGas) {
+                if (opts.$noEstimateGas) {
                     gas = 4000000;
                     cb2();
                     return;
                 }
-                if (opts.gas) {
-                    gas = opts.gas;
+                if (opts.$gas) {
+                    gas = opts.$gas;
                     cb2();
                     return;
                 }
                 const params = paramNames.map(name => opts[ name ]);
-                if (opts.verbose) console.log(method + ": " + JSON.stringify(params));
+                if (opts.$verbose) console.log(method + ": " + JSON.stringify(params));
                 params.push({
                     from: fromAccount,
-                    value: opts.value,
+                    value: opts.$value,
                     gas: 4000000,
                 });
                 params.push((err, _gas) => {
@@ -340,11 +341,11 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                     } else if (_gas >= 4000000) {
                         cb2(new Error("throw"));
                     } else {
-                        if (opts.verbose) {
+                        if (opts.$verbose) {
                             console.log("Gas: " + _gas);
                         }
                         gas = _gas;
-                        gas += opts.extraGas ? opts.extraGas : 10000;
+                        gas += opts.$extraGas ? opts.$extraGas : 10000;
                         cb2();
                     }
                 });
@@ -355,8 +356,8 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 const params = paramNames.map(name => opts[ name ]);
                 params.push({
                     from: fromAccount,
-                    value: opts.value,
-                    gas: opts.gas || gas,
+                    value: opts.$value,
+                    gas: opts.$gas || gas,
                 });
                 params.push((err, _txHash) => {
                     if (err) {
@@ -378,6 +379,62 @@ function sendContractTx(web3, contract, method, opts, _cb) {
     }, _cb);
 }
 
+function sendContractConstTx(web3, contract, method, opts, _cb) {
+    return asyncfunc((cb) => {
+        if (!contract) {
+            cb(new Error("Contract not defined"));
+            return;
+        }
+
+        if (!method) {
+            // TODO send raw transaction to the contract.
+            cb(new Error("Method not defined"));
+            return;
+        }
+
+        let errRes;
+
+        const methodAbi = contract.abi.find(({ name, inputs }) => {
+            if (name !== method) return false;
+            const paramNames = inputs.map((param) => {
+                if (param.name[ 0 ] === "_") {
+                    return param.name.substring(1);
+                }
+                return param.name;
+            });
+            for (let i = 0; i < paramNames.length; i += 1) {
+                if (typeof opts[ paramNames[ i ] ] === "undefined") {
+                    errRes = new Error("Param " + paramNames[ i ] + " not found.");
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        if (errRes) {
+            cb(errRes);
+            return;
+        }
+
+        if (!methodAbi) {
+            cb(new Error("Invalid method"));
+            return;
+        }
+
+        const paramNames = methodAbi.inputs.map(({ name }) => {
+            if (name[ 0 ] === "_") {
+                return name.substring(1);
+            }
+            return name;
+        });
+
+        const params = paramNames.map(name => opts[ name ]);
+        params.push(cb);
+
+        contract[ method ].apply(null, params);
+    }, _cb);
+}
+
 function sendAction(web3, action, contract, method, opts, _cb) {
     return asyncfunc((cb) => {
         if (action.type === "ACCOUNT") {
@@ -390,5 +447,126 @@ function sendAction(web3, action, contract, method, opts, _cb) {
 
         }
     }, cb);
+}
+
+function args2opts(_args, inputs) {
+    const norm = (S) => {
+        return S[0] == '_' ? S.substring(1) : S;
+    }
+    const isObject = (o) => {
+        return ((typeof o == "object") && (Object.keys(o).sort().join('') != 'ces') && !(o instanceof Array));
+    }
+    let args = _args.slice();
+    let opts = {};
+    if (typeof args[args.length -1 ] === "function") {
+        opts.$cb = args.pop();
+    }
+
+    for (let i=0; args.length > 0 && !isObject(args[0]) && i<inputs.length; i++) {
+        opts[norm(inputs[i].name)] = args.shift();
+    }
+    while (args.length > 0) {
+        const o = args.shift();
+        if (!isObject(o)) return null;
+        let isOld = false;
+        if (o.from) {
+            opts.$from = o.from;
+            isOld = true;
+        }
+        if (o.to) {
+            opts.$to = o.to;
+            isOld = true;
+        }
+        if (o.gasPrice) {
+            opts.$gasPrice = o.gasPrice;
+            isOld = true;
+        }
+        if (o.gas) {
+            opts.$gas = o.gas;
+            isOld = true;
+        }
+        if (o.value) {
+            opts.$value = o.value;
+            isOld = true;
+        }
+        if (o.nonce) {
+            opts.$nonce = o.nonce;
+            isOld = true;
+        }
+        if (!isOld) {
+            opts = Object.assign(opts, o);
+        }
+    }
+    return opts;
+}
+
+function generateClass(abi, byteCode) {
+    let constructorInputs = [];
+    const C = function C(web3, address) {
+            this.$web3 = web3;
+            this.$address = address;
+            this.$contract = this.$web3.eth.contract(abi).at(address);
+            this.$abi = abi;
+            this.$byteCode = byteCode;
+    }
+    abi.forEach(({ constant, name, inputs, type }) => {
+        // TODO overloaded functions
+        if (type === "function") {
+            const c = function() {
+                const args = Array.prototype.slice.call(arguments);
+                const self = this;
+                var opts = args2opts(args, inputs);
+                return asyncfunc( (cb) => {
+                    return sendContractConstTx(
+                            self.$web3,
+                            self.$contract,
+                            name,
+                            opts,
+                            cb);
+                }, opts.$cb);
+            }
+            if (!constant) {
+                C.prototype[name] = function() {
+                    const args = Array.prototype.slice.call(arguments);
+                    const self = this;
+                    var opts = args2opts(args, inputs);
+                    return asyncfunc( (cb) => {
+                        return sendContractTx(
+                                self.$web3,
+                                self.$contract,
+                                name,
+                                opts,
+                                cb);
+                    }, opts.$cb);
+                };
+            } else {
+                C.prototype[name] = c;
+            }
+            C.prototype[name].call = c;
+        } else if (type === "constructor") {
+            constructorInputs = inputs;
+        }
+    });
+    C.new = function (web3) {
+        const args = Array.prototype.slice.call(arguments, 1);
+        const self = this;
+        let nargs;
+        let cb;
+        var opts = args2opts(args, constructorInputs);
+        opts.$abi = abi;
+        opts.$byteCode = byteCode;
+        return asyncfunc( (cb) => {
+            return deploy(web3, opts, (err, _contract) => {
+                if (err) {
+                    cb(err);
+                    return;
+                }
+                const cls = new C(web3, _contract.address);
+                cb(null, cls);
+            });
+        }, opts.$cb);
+
+    };
+    return C;
 }
 
