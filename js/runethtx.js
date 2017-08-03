@@ -354,6 +354,9 @@ function sendContractTx(web3, contract, method, opts, _cb) {
             },
             (cb3) => {
                 const params = paramNames.map(name => opts[ name ]);
+                if (opts.$gasPrice) {
+                    params.gasPrice = opts.$gasPrice;
+                }
                 params.push({
                     from: fromAccount,
                     value: opts.$value,
