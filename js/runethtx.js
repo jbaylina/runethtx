@@ -8,7 +8,7 @@ module.exports = {
     getBlock,
     deploy,
     asyncfunc,
-    generateClass
+    generateClass,
 };
 
 function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
@@ -60,7 +60,7 @@ function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
                     from: fromAccount,
                     value: opts.$value || 0,
                     data: $byteCode,
-                    gas: 4000000,
+                    gas: 4700000,
                 });
                 if (opts.$verbose) {
                     console.log("constructor: " + JSON.stringify(params));
@@ -71,11 +71,11 @@ function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
                     from: fromAccount,
                     value: opts.$value || 0,
                     data,
-                    gas: 4000000,
+                    gas: 4700000,
                 }, (err, _gas) => {
                     if (err) {
                         cb2(err);
-                    } else if (_gas >= 4000000) {
+                    } else if (_gas >= 4700000) {
                         cb2(new Error("throw"));
                     } else {
                         if (opts.$verbose) {
@@ -204,11 +204,11 @@ function sendTx(web3, { data, from, value, gas, gasPrice, nonce, to, ...opts }, 
                 if (opts.$verbose) {
                     console.log("sendTx: " + JSON.stringify(txOpts));
                 }
-                txOpts.$gas = 4000000;
+                txOpts.$gas = 4700000;
                 web3.eth.estimateGas(txOpts, (err, _gas) => {
                     if (err) {
                         cb1(err);
-                    } else if (_gas >= 4000000) {
+                    } else if (_gas >= 4700000) {
                         cb1(new Error("throw"));
                     } else {
                         if (opts.$verbose) {
@@ -319,7 +319,7 @@ function sendContractTx(web3, contract, method, opts, _cb) {
             },
             (cb2) => {
                 if (opts.$noEstimateGas) {
-                    gas = 4000000;
+                    gas = 4700000;
                     cb2();
                     return;
                 }
@@ -333,12 +333,12 @@ function sendContractTx(web3, contract, method, opts, _cb) {
                 params.push({
                     from: fromAccount,
                     value: opts.$value,
-                    gas: 4000000,
+                    gas: 4700000,
                 });
                 params.push((err, _gas) => {
                     if (err) {
                         cb2(err);
-                    } else if (_gas >= 4000000) {
+                    } else if (_gas >= 4700000) {
                         cb2(new Error("throw"));
                     } else {
                         if (opts.$verbose) {
@@ -561,7 +561,7 @@ function generateClass(abi, byteCode) {
                     cb(err);
                     return;
                 }
-                const cls = new C(web3, _contract.address);
+                const cls = new self(web3, _contract.address);
                 cb(null, cls);
             });
         }, opts.$cb);
