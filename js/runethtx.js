@@ -55,6 +55,12 @@ const getAccount = (web3, opts) => {
 function sendMethodTx(web3, defer, method, opts) {
     const relayEvent = event => (...args) => defer.eventEmitter.emit(event, ...args);
 
+    const txParams = {
+        value: opts.$value || 0,
+    };
+
+    if (opts.$gasPrice) txParams.gasPrice = opts.$gasPrice;
+
     let fromAccount;
     getAccount(web3, opts)
         .then((account) => {
@@ -68,8 +74,8 @@ function sendMethodTx(web3, defer, method, opts) {
         })
         .then(gas => method.send({
             from: fromAccount,
-            value: opts.$value || 0,
             gas,
+            ...txParams,
         })
             // relay all events to our promiEvent
             .on("transactionHash", relayEvent("transactionHash"))
@@ -116,7 +122,7 @@ function asyncfunc(f, cb) {
 
     if (cb) {
         if (promise.on) {
-            // this is a send tx. we want to return the txHash, not receipt
+            // this is a send tx.
             promise
                 .on("transactionHash", _txHash => cb(null, _txHash))
                 .then(_txReceipt => cb(null, null, _txReceipt))
@@ -249,7 +255,6 @@ function sendContractConstTx(web3, contract, method, opts, _cb) {
         try {
             return contract.methods[ method ].apply(null, params).call();
         } catch (e) {
-            console.log("here");
             return Promise.reject(e);
         }
     }, _cb);
@@ -381,14 +386,13 @@ function generateClass(abi, byteCode) {
                 const args = Array.prototype.slice.call(arguments);
                 const self = this;
                 const opts = args2opts(args, inputs);
-                // return asyncfunc( (cb) => {
+                
                 return sendContractConstTx(
-                        self.$web3,
-                        self.$contract,
-                        name,
-                        opts,
-                        opts.$cb);
-                // }, opts.$cb);
+                    self.$web3,
+                    self.$contract,
+                    name,
+                    opts,
+                    opts.$cb);
             };
             if (!constant) {
                 C.prototype[ name ] = function () {
