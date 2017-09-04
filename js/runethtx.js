@@ -26,8 +26,9 @@ const estimateGas = (web3, method, opts) => {
     if (opts.$gas) return Promise.resolve(opts.$gas);
 
     return method.estimateGas({
-        value: opts.$value,
+        value: opts.$value || 0,
         gas: 4700000,
+        from: opts.$from,
     }).then((_gas) => {
         if (_gas >= 4700000) throw new Error(`gas limit reached: ${ _gas }`);
 
@@ -61,11 +62,10 @@ function sendMethodTx(web3, defer, method, opts) {
 
     if (opts.$gasPrice) txParams.gasPrice = opts.$gasPrice;
 
-    let fromAccount;
     getAccount(web3, opts)
         .then((account) => {
-            fromAccount = account;
-            return estimateGas(web3, method, opts);
+            txParams.from = account;
+            return estimateGas(web3, method, Object.assign({}, opts, { $from: account }));
         })
         .catch((err) => {
             // make sure 'error' event is emitted
@@ -73,7 +73,6 @@ function sendMethodTx(web3, defer, method, opts) {
             throw err;
         })
         .then(gas => method.send({
-            from: fromAccount,
             gas,
             ...txParams,
         })
