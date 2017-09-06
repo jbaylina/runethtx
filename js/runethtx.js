@@ -1,4 +1,7 @@
-const async = require("async");
+const Web3PromiEvent = require("web3-core-promievent");
+const utils = require("web3-utils");
+
+utils.fireError = utils._fireError; // eslint-disable-line no-underscore-dangle
 
 module.exports = {
     sendContractTx,
@@ -11,397 +14,228 @@ module.exports = {
     generateClass,
 };
 
-function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
-    return asyncfunc((cb) => {
-        const constructorAbi = $abi.find(({ type }) => (type === "constructor"));
-        let paramNames;
-        let contract;
-        let fromAccount;
-        let gas;
-        if (constructorAbi) {
-            paramNames = constructorAbi.inputs.map(({ name }) => {
-                if (name[ 0 ] === "_") {
-                    return name.substring(1);
-                }
-                return name;
-            });
-        } else {
-            paramNames = [];
-        }
-        async.series([
-            (cb1) => {
-                if (opts.$from) {
-                    fromAccount = opts.$from;
-                    setTimeout(cb1, 1);
-                } else {
-                    web3.eth.getAccounts((err, _accounts) => {
-                        if (err) {
-                            console.log("xxxxx -> " + err);
-                            cb1(err);
-                            return;
-                        }
-                        if (_accounts.length === 0) {
-                            cb1(new Error("No account to deploy a contract"));
-                            return;
-                        }
-                        fromAccount = _accounts[ 0 ];
-                        cb1();
-                    });
-                }
-            },
-            (cb2) => {
-                if (opts.$gas) {
-                    gas = opts.$gas;
-                    cb2();
-                    return;
-                }
-                const params = paramNames.map(name => opts[ name ]);
-                params.push({
-                    from: fromAccount,
-                    value: opts.$value || 0,
-                    data: $byteCode,
-                    gas: 4700000,
-                });
-                if (opts.$verbose) {
-                    console.log("constructor: " + JSON.stringify(params));
-                }
-                const data = web3.eth.contract($abi).new.getData(...params);
+const getParamNames = inputs => inputs.map((param) => {
+    if (param.name[ 0 ] === "_") {
+        return param.name.substring(1);
+    }
+    return param.name;
+});
 
-                web3.eth.estimateGas({
-                    from: fromAccount,
-                    value: opts.$value || 0,
-                    data,
-                    gas: 4700000,
-                }, (err, _gas) => {
-                    if (err) {
-                        cb2(err);
-                    } else if (_gas >= 4700000) {
-                        cb2(new Error("throw"));
-                    } else {
-                        if (opts.$verbose) {
-                            console.log("Gas: " + _gas);
-                        }
-                        gas = _gas;
-                        gas += opts.$extraGas ? opts.$extraGas : 10000;
-                        cb2();
-                    }
-                });
-            },
-            (cb3) => {
-                const params = paramNames.map(name => opts[ name ]);
-                params.push({
-                    from: fromAccount,
-                    value: opts.$value || 0,
-                    data: $byteCode,
-                    gas,
-                });
-                params.push((err, _contract) => {
-                    if (err) {
-                        cb3(err);
-                        return;
-                    }
-                    if (typeof _contract.address !== "undefined") {
-                        contract = _contract;
-                        cb3();
-                    }
-                });
-                const ctr = web3.eth.contract($abi);
-                ctr.new(...params);
-            },
-        ], (err2) => {
-            if (err2) {
-                cb(err2);
-            } else {
-                cb(null, contract);
-            }
+const estimateGas = (web3, method, opts) => {
+    if (opts.$noEstimateGas) return Promise.resolve(4700000);
+    if (opts.$gas) return Promise.resolve(opts.$gas);
+
+    return method.estimateGas({
+        value: opts.$value || 0,
+        gas: 4700000,
+        from: opts.$from,
+    }).then((_gas) => {
+        if (_gas >= 4700000) throw new Error(`gas limit reached: ${ _gas }`);
+
+        if (opts.$verbose) console.log("Gas: " + _gas); // eslint-disable-line no-console
+
+        return opts.$extraGas ? _gas + opts.$extraGas : _gas + 10000;
+    });
+};
+
+const getAccount = (web3, opts) => {
+    if (opts.$from) {
+        return Promise.resolve(opts.$from);
+    }
+    return web3.eth.getAccounts()
+        .then((_accounts) => {
+            if (_accounts.length === 0) throw new Error("No account available");
+
+            return _accounts[ 0 ];
+        }).catch((err) => {
+            console.log("xxxxx -> " + err); // eslint-disable-line no-console
+            throw err;
         });
+};
+
+function sendMethodTx(web3, defer, method, opts) {
+    const relayEvent = event => (...args) => defer.eventEmitter.emit(event, ...args);
+
+    const txParams = {
+        value: opts.$value || 0,
+    };
+
+    if (opts.$gasPrice) txParams.gasPrice = opts.$gasPrice;
+
+    getAccount(web3, opts)
+        .then((account) => {
+            txParams.from = account;
+            return estimateGas(web3, method, Object.assign({}, opts, { $from: account }));
+        })
+        .catch((err) => {
+            // make sure 'error' event is emitted
+            utils.fireError(err, defer.eventEmitter, defer.reject);
+            throw err;
+        })
+        .then(gas => method.send({
+            gas,
+            ...txParams,
+        })
+            // relay all events to our promiEvent
+            .on("transactionHash", relayEvent("transactionHash"))
+            .on("confirmation", relayEvent("confirmation"))
+            .on("receipt", relayEvent("receipt"))
+            .on("error", relayEvent("error")),
+        )
+        .then(defer.resolve)
+        .catch(defer.reject);
+}
+
+function deploy(web3, { $abi, $byteCode, ...opts }, _cb) {
+    return asyncfunc(() => {
+        const defer = Web3PromiEvent();
+
+        const fireError = err => utils.fireError(err, defer.eventEmitter, defer.reject);
+
+        try {
+            checkWeb3(web3);
+        } catch (e) {
+            return fireError(e);
+        }
+
+        const constructorAbi = $abi.find(({ type }) => (type === "constructor"));
+
+        const paramNames = (constructorAbi) ? getParamNames(constructorAbi.inputs) : [];
+        const params = paramNames.map(name => opts[ name ]);
+
+        if (opts.$verbose) console.log("constructor: " + JSON.stringify(params)); // eslint-disable-line no-console
+
+        const ctr = new web3.eth.Contract($abi).deploy({
+            data: $byteCode,
+            arguments: params,
+        });
+
+        sendMethodTx(web3, defer, ctr, opts);
+
+        return defer.eventEmitter;
     }, _cb);
 }
 
 function asyncfunc(f, cb) {
-    const promise = new Promise((resolve, reject) => {
-        f((err, val) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(val);
-            }
-        });
-    });
+    const promise = f();
+
     if (cb) {
-        promise.then(
-            (value) => {
-                cb(null, value);
-            },
-            (reason) => {
-                cb(reason);
-            });
+        if (promise.on) {
+            // this is a send tx.
+            promise
+                .on("transactionHash", _txHash => cb(null, _txHash))
+                .then(_txReceipt => cb(null, null, _txReceipt))
+                .catch(cb);
+        } else {
+            // this is a call tx. we want to return the result
+            promise.then(value => cb(null, value), cb);
+        }
     } else {
         return promise;
     }
 }
 
-function getBalance(web3, address, _cb) {
-    return asyncfunc((cb) => {
-        web3.eth.getBalance(address, cb);
-    }, _cb);
+function getBalance(web3, address, cb) {
+    checkWeb3(web3);
+    return web3.eth.getBalance(address, cb);
 }
 
-function getTransactionReceipt(web3, txHash, _cb) {
-    return asyncfunc((cb) => {
-        web3.eth.getTransactionReceipt(txHash, cb);
-    }, _cb);
+function getTransactionReceipt(web3, txHash, cb) {
+    checkWeb3(web3);
+    return web3.eth.getTransactionReceipt(txHash, cb);
 }
 
-function getBlock(web3, blockNumber, _cb) {
-    return asyncfunc((cb) => {
-        web3.eth.getBlock(blockNumber, cb);
-    }, _cb);
+function getBlock(web3, blockNumber, cb) {
+    checkWeb3(web3);
+    return web3.eth.getBlock(blockNumber, cb);
 }
 
-function sendTx(web3, { data, from, value, gas, gasPrice, nonce, to, ...opts }, _cb) {
-    return asyncfunc((cb) => {
-        const txOpts = {};
-        let txHash;
-        if (!to) {
-            cb(new Error("to is required"));
-            return;
+function sendTx(web3, { data, from, value, gasPrice, nonce, to, ...opts }, _cb) {
+    return asyncfunc(() => {
+        const defer = Web3PromiEvent();
+
+        const fireError = err => utils.fireError(err, defer.eventEmitter, defer.reject);
+
+        const relayEvent = event => (...args) => defer.eventEmitter.emit(event, ...args);
+
+        try {
+            checkWeb3(web3);
+        } catch (e) {
+            return fireError(e);
         }
+
+        const txOpts = {};
+
+        if (!to) return fireError(new Error("to is required"));
+
         txOpts.to = to;
         txOpts.value = value || 0;
-        if (gas) txOpts.gas = gas;
         if (gasPrice) txOpts.gasPrice = gasPrice;
         if (nonce) txOpts.nonce = nonce;
         if (data) txOpts.data = data;
-        async.series([
-            (cb1) => {
-                if (from) {
-                    txOpts.from = from;
-                    setTimeout(cb1, 1);
-                } else {
-                    // eslint-disable-next-line no-underscore-dangle
-                    web3.eth.getAccounts((err, _accounts) => {
-                        if (err) {
-                            console.log("xxxxx -> " + err);
-                            cb1(err);
-                            return;
-                        }
-                        if (_accounts.length === 0) {
-                            cb1(new Error("No account to deploy a contract"));
-                            return;
-                        }
-                        txOpts.from = _accounts[ 0 ];
-                        cb1();
-                    });
-                }
-            },
-            (cb1) => {
-                if (opts.$gas) {
-                    txOpts.gas = opts.$gas;
-                    cb1();
-                    return;
-                }
-                if (opts.$verbose) {
-                    console.log("sendTx: " + JSON.stringify(txOpts));
-                }
-                txOpts.$gas = 4700000;
-                web3.eth.estimateGas(txOpts, (err, _gas) => {
-                    if (err) {
-                        cb1(err);
-                    } else if (_gas >= 4700000) {
-                        cb1(new Error("throw"));
-                    } else {
-                        if (opts.$verbose) {
-                            console.log("Gas: " + _gas);
-                        }
-                        if (opts.$gas) {
-                            txOpts.gas = opts.$gas;
-                        } else {
-                            txOpts.gas = _gas;
-                            txOpts.gas += opts.$extraGas ? opts.$extraGas : 10000;
-                        }
-                        cb1();
-                    }
+
+        const _estimateGas = () => { // eslint-disable-line no-underscore-dangle
+            if (opts.$noEstimateGas) return Promise.resolve(4700000);
+            if (opts.gas) return Promise.resolve(opts.gas);
+
+            return web3.eth.estimateGas(txOpts)
+                .then((gas) => {
+                    if (gas >= 4700000) throw new Error(`gas limit reached: ${ gas }`);
+
+                    if (opts.$verbose) console.log("Gas: " + gas); // eslint-disable-line no-console
+
+                    return (opts.$extraGas) ? gas + opts.$extraGas : gas + 10000;
                 });
-            },
-            (cb1) => {
-                web3.eth.sendTransaction(txOpts, (err, _txHash) => {
-                    if (err) {
-                        cb1(err);
-                    } else {
-                        txHash = _txHash;
-                        cb1();
-                    }
-                });
-            },
-            (cb1) => {
-                setTimeout(cb1, 100);
-            },
-        ], (err) => {
-            cb(err, txHash);
-        });
-    }, _cb);
-}
+        };
 
-function sendContractTx(web3, contract, method, opts, _cb) {
-    return asyncfunc((cb) => {
-        if (!contract) {
-            cb(new Error("Contract not defined"));
-            return;
-        }
+        getAccount(web3, { $from: from })
+            .then((account) => {
+                txOpts.from = account;
+                return _estimateGas();
+            })
+            .catch((err) => {
+                fireError(err); // make sure 'error' event is emitted
+                throw err;
+            })
+            .then((gas) => {
+                txOpts.gas = gas;
 
-        if (!method) {
-            // TODO send raw transaction to the contract.
-            cb(new Error("Method not defined"));
-            return;
-        }
+                if (opts.$verbose) console.log("sendTx: " + JSON.stringify(txOpts)); // eslint-disable-line no-console
 
-        let errRes;
+                return web3.eth.sendTransaction({ ...txOpts })
+                    // relay all events to our promiEvent
+                    .on("transactionHash", relayEvent("transactionHash"))
+                    .on("confirmation", relayEvent("confirmation"))
+                    .on("receipt", relayEvent("receipt"))
+                    .on("error", relayEvent("error"));
+            })
+            .then(defer.resolve)
+            .catch(defer.reject);
 
-        const methodAbi = contract.abi.find(({ name, inputs }) => {
-            if (name !== method) return false;
-            const paramNames = inputs.map((param) => {
-                if (param.name[ 0 ] === "_") {
-                    return param.name.substring(1);
-                }
-                return param.name;
-            });
-            for (let i = 0; i < paramNames.length; i += 1) {
-                if (typeof opts[ paramNames[ i ] ] === "undefined") {
-                    errRes = new Error("Param " + paramNames[ i ] + " not found.");
-                    return false;
-                }
-            }
-            return true;
-        });
-
-        if (errRes) {
-            cb(errRes);
-            return;
-        }
-
-        if (!methodAbi) {
-            cb(new Error("Invalid method"));
-            return;
-        }
-
-        const paramNames = methodAbi.inputs.map(({ name }) => {
-            if (name[ 0 ] === "_") {
-                return name.substring(1);
-            }
-            return name;
-        });
-
-        let fromAccount;
-        let gas;
-        let txHash;
-
-        async.series([
-            (cb1) => {
-                if (opts.$from) {
-                    fromAccount = opts.$from;
-                    setTimeout(cb1, 1);
-                } else {
-                    web3.eth.getAccounts((err, _accounts) => {
-                        if (err) {
-                            console.log("xxxxx -> " + err);
-                            cb1(err);
-                            return;
-                        }
-                        if (_accounts.length === 0) {
-                            cb1(new Error("No account to send the TX"));
-                            return;
-                        }
-                        fromAccount = _accounts[ 0 ];
-                        cb1();
-                    });
-                }
-            },
-            (cb2) => {
-                if (opts.$noEstimateGas) {
-                    gas = 4700000;
-                    cb2();
-                    return;
-                }
-                if (opts.$gas) {
-                    gas = opts.$gas;
-                    cb2();
-                    return;
-                }
-                const params = paramNames.map(name => opts[ name ]);
-                if (opts.$verbose) console.log(method + ": " + JSON.stringify(params));
-                params.push({
-                    from: fromAccount,
-                    value: opts.$value,
-                    gas: 4700000,
-                });
-                params.push((err, _gas) => {
-                    if (err) {
-                        cb2(err);
-                    } else if (_gas >= 4700000) {
-                        cb2(new Error("throw"));
-                    } else {
-                        if (opts.$verbose) {
-                            console.log("Gas: " + _gas);
-                        }
-                        gas = _gas;
-                        gas += opts.$extraGas ? opts.$extraGas : 10000;
-                        cb2();
-                    }
-                });
-
-                contract[ method ].estimateGas.apply(null, params);
-            },
-            (cb3) => {
-                const params = paramNames.map(name => opts[ name ]);
-                params.push({
-                    from: fromAccount,
-                    value: opts.$value,
-                    gas: opts.$gas || gas,
-                });
-                params.push((err, _txHash) => {
-                    if (err) {
-                        cb3(err);
-                    } else {
-                        txHash = _txHash;
-                        cb3();
-                    }
-                });
-
-                contract[ method ].apply(null, params);
-            },
-            (cb4) => {
-                web3.eth.getTransactionReceipt(txHash, cb4);
-            },
-        ], (err) => {
-            cb(err, txHash);
-        });
+        return defer.eventEmitter;
     }, _cb);
 }
 
 function sendContractConstTx(web3, contract, method, opts, _cb) {
-    return asyncfunc((cb) => {
-        if (!contract) {
-            cb(new Error("Contract not defined"));
-            return;
+    return asyncfunc(() => {
+        try {
+            checkWeb3(web3);
+        } catch (e) {
+            return Promise.reject(e);
         }
 
-        if (!method) {
-            // TODO send raw transaction to the contract.
-            cb(new Error("Method not defined"));
-            return;
-        }
+        if (!contract) return Promise.reject(new Error("Contract not defined"));
+
+        // TODO send raw transaction to the contract.
+        if (!method) return Promise.reject(new Error("Method not defined"));
 
         let errRes;
 
-        const methodAbi = contract.abi.find(({ name, inputs }) => {
+        const methodAbi = contract.options.jsonInterface.find(({ name, inputs }) => {
             if (name !== method) return false;
-            const paramNames = inputs.map((param) => {
-                if (param.name[ 0 ] === "_") {
-                    return param.name.substring(1);
-                }
-                return param.name;
-            });
+
+            const paramNames = getParamNames(inputs);
+
             for (let i = 0; i < paramNames.length; i += 1) {
                 if (typeof opts[ paramNames[ i ] ] === "undefined") {
                     errRes = new Error("Param " + paramNames[ i ] + " not found.");
@@ -411,27 +245,65 @@ function sendContractConstTx(web3, contract, method, opts, _cb) {
             return true;
         });
 
-        if (errRes) {
-            cb(errRes);
-            return;
+        if (errRes) return Promise.reject(new Error(errRes));
+
+        if (!methodAbi) return Promise.reject(new Error("Invalid method"));
+
+        const params = getParamNames(methodAbi.inputs).map(name => opts[ name ]);
+
+        try {
+            return contract.methods[ method ].apply(null, params).call();
+        } catch (e) {
+            return Promise.reject(e);
+        }
+    }, _cb);
+}
+
+function sendContractTx(web3, contract, method, opts, _cb) {
+    return asyncfunc(() => {
+        const defer = Web3PromiEvent();
+
+        // catch is to prevent unhandled exception
+        const fireError = err => utils.fireError(err, defer.eventEmitter, defer.reject);
+
+        try {
+            checkWeb3(web3);
+        } catch (e) {
+            return fireError(e);
         }
 
-        if (!methodAbi) {
-            cb(new Error("Invalid method"));
-            return;
-        }
+        if (!contract) return fireError(new Error("Contract not defined"));
 
-        const paramNames = methodAbi.inputs.map(({ name }) => {
-            if (name[ 0 ] === "_") {
-                return name.substring(1);
+        // TODO send raw transaction to the contract.
+        if (!method) return fireError(new Error("Method not defined"));
+
+        let errRes;
+
+        const methodAbi = contract.options.jsonInterface.find(({ name, inputs }) => {
+            if (name !== method) return false;
+            const paramNames = getParamNames(inputs);
+            for (let i = 0; i < paramNames.length; i += 1) {
+                if (typeof opts[ paramNames[ i ] ] === "undefined") {
+                    errRes = new Error("Param " + paramNames[ i ] + " not found.");
+                    return false;
+                }
             }
-            return name;
+            return true;
         });
 
-        const params = paramNames.map(name => opts[ name ]);
-        params.push(cb);
+        if (errRes) return fireError(errRes);
 
-        contract[ method ].apply(null, params);
+        if (!methodAbi) return fireError(new Error("Invalid method"));
+
+        const params = getParamNames(methodAbi.inputs).map(name => opts[ name ]);
+
+        if (opts.$verbose) console.log(method + ": " + JSON.stringify(params)); // eslint-disable-line no-console
+
+        const m = contract.methods[ method ].apply(null, params);
+
+        sendMethodTx(web3, defer, m, opts);
+
+        return defer.eventEmitter;
     }, _cb);
 }
 
@@ -450,20 +322,16 @@ function sendAction(web3, action, contract, method, opts, _cb) {
 }
 
 function args2opts(_args, inputs) {
-    const norm = (S) => {
-        return S[0] == '_' ? S.substring(1) : S;
-    }
-    const isObject = (o) => {
-        return ((typeof o == "object") && (Object.keys(o).sort().join('') != 'ces') && !(o instanceof Array));
-    }
-    let args = _args.slice();
+    const norm = S => S[ 0 ] == "_" ? S.substring(1) : S;
+    const isObject = o => ((typeof o === "object") && (Object.keys(o).sort().join("") != "ces") && !(o instanceof Array));
+    const args = _args.slice();
     let opts = {};
-    if (typeof args[args.length -1 ] === "function") {
+    if (typeof args[ args.length - 1 ] === "function") {
         opts.$cb = args.pop();
     }
 
-    for (let i=0; args.length > 0 && !isObject(args[0]) && i<inputs.length; i++) {
-        opts[norm(inputs[i].name)] = args.shift();
+    for (let i = 0; args.length > 0 && !isObject(args[ 0 ]) && i < inputs.length; i++) {
+        opts[ norm(inputs[ i ].name) ] = args.shift();
     }
     while (args.length > 0) {
         const o = args.shift();
@@ -503,46 +371,45 @@ function args2opts(_args, inputs) {
 function generateClass(abi, byteCode) {
     let constructorInputs = [];
     const C = function C(web3, address) {
-            this.$web3 = web3;
-            this.$address = address;
-            this.$contract = this.$web3.eth.contract(abi).at(address);
-            this.$abi = abi;
-            this.$byteCode = byteCode;
-    }
+        checkWeb3(web3);
+        this.$web3 = web3;
+        this.$address = address;
+        this.$contract = new this.$web3.eth.Contract(abi, address);
+        this.$abi = abi;
+        this.$byteCode = byteCode;
+    };
     abi.forEach(({ constant, name, inputs, type }) => {
         // TODO overloaded functions
         if (type === "function") {
-            const c = function() {
+            const c = function () {
                 const args = Array.prototype.slice.call(arguments);
                 const self = this;
-                var opts = args2opts(args, inputs);
-                return asyncfunc( (cb) => {
-                    return sendContractConstTx(
+                const opts = args2opts(args, inputs);
+                
+                return sendContractConstTx(
+                    self.$web3,
+                    self.$contract,
+                    name,
+                    opts,
+                    opts.$cb);
+            };
+            if (!constant) {
+                C.prototype[ name ] = function () {
+                    const args = Array.prototype.slice.call(arguments);
+                    const self = this;
+                    const opts = args2opts(args, inputs);
+
+                    return sendContractTx(
                             self.$web3,
                             self.$contract,
                             name,
                             opts,
-                            cb);
-                }, opts.$cb);
-            }
-            if (!constant) {
-                C.prototype[name] = function() {
-                    const args = Array.prototype.slice.call(arguments);
-                    const self = this;
-                    var opts = args2opts(args, inputs);
-                    return asyncfunc( (cb) => {
-                        return sendContractTx(
-                                self.$web3,
-                                self.$contract,
-                                name,
-                                opts,
-                                cb);
-                    }, opts.$cb);
+                            opts.$cb);
                 };
             } else {
-                C.prototype[name] = c;
+                C.prototype[ name ] = c;
             }
-            C.prototype[name].call = c;
+            C.prototype[ name ].call = c;
         } else if (type === "constructor") {
             constructorInputs = inputs;
         }
@@ -550,23 +417,31 @@ function generateClass(abi, byteCode) {
     C.new = function (web3) {
         const args = Array.prototype.slice.call(arguments, 1);
         const self = this;
-        let nargs;
-        let cb;
-        var opts = args2opts(args, constructorInputs);
+        const opts = args2opts(args, constructorInputs);
         opts.$abi = abi;
         opts.$byteCode = byteCode;
-        return asyncfunc( (cb) => {
-            return deploy(web3, opts, (err, _contract) => {
-                if (err) {
-                    cb(err);
-                    return;
-                }
-                const cls = new self(web3, _contract.address);
-                cb(null, cls);
-            });
-        }, opts.$cb);
 
+        checkWeb3(web3);
+        const defer = Web3PromiEvent();
+
+        const relayEvent = event => (..._args) => defer.eventEmitter.emit(event, ..._args);
+
+        deploy(web3, opts, opts.$cb)
+            // relay all events to our promiEvent
+            .on("transactionHash", relayEvent("transactionHash"))
+            .on("confirmation", relayEvent("confirmation"))
+            .on("receipt", relayEvent("receipt"))
+            .on("error", relayEvent("error"))
+            .then(_contract => defer.resolve(new self(web3, _contract.options.address)))
+            .catch(defer.reject);
+
+        return defer.eventEmitter;
     };
     return C;
 }
 
+function checkWeb3(web3) {
+    if (typeof web3.version !== "string" || !web3.version.startsWith("1.")) {
+        throw new Error("web3 version 1.x is required");
+    }
+}
